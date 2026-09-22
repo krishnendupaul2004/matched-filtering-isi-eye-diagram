@@ -1,0 +1,1060 @@
+# ============================================================
+# EXPERIMENT 8
+# Matched Filtering, ISI and Eye Diagrams
+# BPSK + RRC + AWGN
+# GOOGLE COLAB / PYTHON VERSION
+# ============================================================
+
+import numpy as np
+import matplotlib.pyplot as plt
+
+# Reproducible results
+np.random.seed(10)
+
+print("Experiment 8: Matched Filtering, ISI and Eye Diagrams")
+print("========================================================")
+
+
+# ============================================================
+# 1. BASIC PARAMETERS
+# ============================================================
+
+Nbits = 5000          # Number of transmitted bits
+sps = 16              # Samples per symbol
+span = 8              # RRC filter span in symbols
+alpha = 0.35          # Roll-off factor
+SNRdB = 10            # SNR in dB
+
+print("\nSimulation Parameters")
+print("---------------------")
+print("Number of bits     :", Nbits)
+print("Samples/symbol     :", sps)
+print("RRC span           :", span)
+print("Roll-off factor    :", alpha)
+print("SNR                :", SNRdB, "dB")
+
+
+# ============================================================
+# 2. RRC FILTER FUNCTION
+# ============================================================
+
+def rrc_filter(alpha, span, sps):
+
+    T = 1.0
+
+    t = np.arange(
+        -span*T/2,
+        span*T/2 + T/sps,
+        T/sps
+    )
+
+    h = np.zeros(len(t))
+
+    for i, tau in enumerate(t):
+
+        # t = 0
+        if abs(tau) < 1e-10:
+
+            h[i] = 1 + alpha * (4/np.pi - 1)
+
+        # t = ±T/(4α)
+        elif alpha > 0 and abs(abs(tau) - T/(4*alpha)) < 1e-10:
+
+            h[i] = (
+                alpha / np.sqrt(2)
+                *
+                (
+                    (1 + 2/np.pi)
+                    * np.sin(np.pi/(4*alpha))
+                    +
+                    (1 - 2/np.pi)
+                    * np.cos(np.pi/(4*alpha))
+                )
+            )
+
+        else:
+
+            numerator = (
+                np.sin(np.pi*tau*(1-alpha)/T)
+                +
+                4*alpha*tau/T
+                * np.cos(np.pi*tau*(1+alpha)/T)
+            )
+
+            denominator = (
+                np.pi*tau/T
+                *
+                (1 - (4*alpha*tau/T)**2)
+            )
+
+            h[i] = numerator / denominator
+
+    # Normalize filter energy
+    h = h / np.sqrt(np.sum(h**2))
+
+    return h
+
+
+# ============================================================
+# 3. GENERATE RANDOM BITS
+# ============================================================
+
+bits = np.random.randint(0, 2, Nbits)
+
+# BPSK mapping
+# 0 -> -1
+# 1 -> +1
+
+symbols = 2*bits - 1
+
+
+# ============================================================
+# 4. CREATE RRC FILTER
+# ============================================================
+
+rrc = rrc_filter(alpha, span, sps)
+
+print("\nRRC Filter")
+print("----------")
+print("Filter length =", len(rrc), "samples")
+
+
+# ============================================================
+# 5. UPSAMPLING
+# ============================================================
+
+upsampled = np.zeros(Nbits * sps)
+
+upsampled[::sps] = symbols
+
+
+# ============================================================
+# 6. RRC TRANSMIT FILTER
+# ============================================================
+
+tx = np.convolve(
+    upsampled,
+    rrc,
+    mode="full"
+)
+
+
+# ============================================================
+# 7. PLOT RRC FILTER
+# ============================================================
+
+plt.figure(figsize=(10,5))
+
+plt.plot(rrc, linewidth=2)
+
+plt.grid(True)
+
+plt.xlabel("Sample")
+plt.ylabel("Amplitude")
+
+plt.title("RRC Pulse-Shaping Filter")
+
+plt.show()
+
+
+# ============================================================
+# 8. PLOT TRANSMITTED SIGNAL
+# ============================================================
+
+plt.figure(figsize=(12,5))
+
+plt.plot(tx[:1000])
+
+plt.grid(True)
+
+plt.xlabel("Sample")
+plt.ylabel("Amplitude")
+
+plt.title("BPSK Signal After RRC Transmit Filtering")
+
+plt.show()
+
+
+# ============================================================
+# 9. AWGN CHANNEL
+# ============================================================
+
+signal_power = np.mean(tx**2)
+
+SNR_linear = 10**(SNRdB/10)
+
+noise_power = signal_power / SNR_linear
+
+noise = np.sqrt(noise_power) * np.random.randn(len(tx))
+
+rx = tx + noise
+
+
+# ============================================================
+# 10. PLOT RECEIVED SIGNAL
+# ============================================================
+
+plt.figure(figsize=(12,5))
+
+plt.plot(rx[:1000])
+
+plt.grid(True)
+
+plt.xlabel("Sample")
+plt.ylabel("Amplitude")
+
+plt.title("Received BPSK Signal with AWGN")
+
+plt.show()
+
+
+# ============================================================
+# 11. MATCHED RRC FILTER
+# ============================================================
+
+# Matched filter
+matched_filter = rrc[::-1]
+
+mf_output = np.convolve(
+    rx,
+    matched_filter,
+    mode="full"
+)
+
+
+# ============================================================
+# 12. CALCULATE FILTER DELAY
+# ============================================================
+
+filter_length = len(rrc)
+
+delay_each = (filter_length - 1) / 2
+
+total_delay = int(2 * delay_each)
+
+print("\n============================================")
+print("FILTER DELAY VALIDATION")
+print("============================================")
+
+print("RRC filter length       =", filter_length)
+print("TX filter delay         =", delay_each, "samples")
+print("RX filter delay         =", delay_each, "samples")
+print("TOTAL CASCADE DELAY     =", total_delay, "samples")
+
+
+# ============================================================
+# 13. DELAY COMPENSATION
+# ============================================================
+
+start_index = total_delay
+
+end_index = start_index + len(upsampled)
+
+rx_aligned = mf_output[
+    start_index:end_index
+]
+
+
+# ============================================================
+# 14. PLOT MATCHED FILTER OUTPUT
+# ============================================================
+
+plt.figure(figsize=(12,5))
+
+plt.plot(mf_output[:1500])
+
+plt.grid(True)
+
+plt.xlabel("Sample")
+plt.ylabel("Amplitude")
+
+plt.title("Matched Filter Output")
+
+plt.show()
+
+
+# ============================================================
+# 15. DELAY-COMPENSATED OUTPUT
+# ============================================================
+
+plt.figure(figsize=(12,5))
+
+plt.plot(rx_aligned[:1000])
+
+plt.grid(True)
+
+plt.xlabel("Sample")
+plt.ylabel("Amplitude")
+
+plt.title("Matched Filter Output After Delay Compensation")
+
+plt.show()
+
+
+# ============================================================
+# 16. SYMBOL SAMPLING
+# ============================================================
+
+received_samples = rx_aligned[::sps]
+
+L = min(
+    len(received_samples),
+    len(symbols)
+)
+
+received_samples = received_samples[:L]
+
+original_symbols = symbols[:L]
+
+original_bits = bits[:L]
+
+
+# ============================================================
+# 17. BPSK DECISION
+# ============================================================
+
+detected_bits = (
+    received_samples > 0
+).astype(int)
+
+
+# ============================================================
+# 18. BER
+# ============================================================
+
+BER = np.mean(
+    detected_bits != original_bits
+)
+
+print("\nDetection Results")
+print("-----------------")
+
+print("Number of detected symbols =", L)
+
+print("Measured BER               =", BER)
+
+
+# ============================================================
+# 19. THEORETICAL BPSK BER
+# ============================================================
+
+EbN0 = 10**(SNRdB/10)
+
+theoretical_BER = (
+    0.5 *
+    np.math.erfc(
+        np.sqrt(EbN0)
+    )
+)
+
+print(
+    "Theoretical BPSK BER       =",
+    theoretical_BER
+)
+
+
+# ============================================================
+# 20. RECEIVED SYMBOLS
+# ============================================================
+
+plt.figure(figsize=(12,5))
+
+plt.stem(
+    received_samples[:100]
+)
+
+plt.axhline(
+    0,
+    linestyle="--"
+)
+
+plt.grid(True)
+
+plt.xlabel("Symbol Number")
+
+plt.ylabel("Amplitude")
+
+plt.title("Received BPSK Symbol Samples")
+
+plt.show()
+
+
+# ============================================================
+# 21. EYE DIAGRAM FUNCTION
+# ============================================================
+
+def plot_eye(signal, sps, num_traces=300):
+
+    eye_length = 2 * sps
+
+    plt.figure(figsize=(10,6))
+
+    count = 0
+
+    for i in range(
+        0,
+        len(signal) - eye_length,
+        sps
+    ):
+
+        if count >= num_traces:
+            break
+
+        segment = signal[
+            i:i+eye_length
+        ]
+
+        time_axis = np.arange(
+            eye_length
+        ) / sps
+
+        plt.plot(
+            time_axis,
+            segment,
+            alpha=0.25
+        )
+
+        count += 1
+
+    plt.axvline(
+        1,
+        linestyle="--",
+        linewidth=2,
+        label="Sampling instant"
+    )
+
+    plt.axhline(
+        0,
+        linestyle="--"
+    )
+
+    plt.grid(True)
+
+    plt.xlabel(
+        "Time / Symbol Period"
+    )
+
+    plt.ylabel(
+        "Amplitude"
+    )
+
+    plt.title(
+        "Eye Diagram After Matched Filtering"
+    )
+
+    plt.legend()
+
+    plt.show()
+
+
+# ============================================================
+# 22. DRAW EYE DIAGRAM
+# ============================================================
+
+plot_eye(
+    rx_aligned,
+    sps
+)
+
+
+# ============================================================
+# 23. EYE HEIGHT
+# ============================================================
+
+eye_length = 2*sps
+
+sample_point = sps
+
+window = 2
+
+eye_samples = []
+
+for i in range(
+    0,
+    len(rx_aligned) - eye_length,
+    sps
+):
+
+    segment = rx_aligned[
+        i:i+eye_length
+    ]
+
+    a = max(
+        0,
+        sample_point-window
+    )
+
+    b = min(
+        len(segment),
+        sample_point+window+1
+    )
+
+    eye_samples.extend(
+        segment[a:b]
+    )
+
+eye_samples = np.array(
+    eye_samples
+)
+
+eye_max = np.max(
+    eye_samples
+)
+
+eye_min = np.min(
+    eye_samples
+)
+
+eye_height = eye_max - eye_min
+
+print("\nEye Height")
+print("----------")
+
+print(
+    "Eye height =",
+    eye_height
+)
+
+
+# ============================================================
+# 24. EYE HEIGHT VS SNR
+# ============================================================
+
+SNR_values = np.arange(
+    0,
+    21,
+    2
+)
+
+eye_heights = []
+
+for snr_db in SNR_values:
+
+    noise_power = (
+        signal_power /
+        10**(snr_db/10)
+    )
+
+    test_noise = (
+        np.sqrt(noise_power)
+        *
+        np.random.randn(len(tx))
+    )
+
+    test_rx = tx + test_noise
+
+    test_mf = np.convolve(
+        test_rx,
+        matched_filter,
+        mode="full"
+    )
+
+    test_aligned = test_mf[
+        total_delay:
+        total_delay + len(upsampled)
+    ]
+
+    samples = []
+
+    for i in range(
+        0,
+        len(test_aligned) - eye_length,
+        sps
+    ):
+
+        segment = test_aligned[
+            i:i+eye_length
+        ]
+
+        a = max(
+            0,
+            sample_point-window
+        )
+
+        b = min(
+            len(segment),
+            sample_point+window+1
+        )
+
+        samples.extend(
+            segment[a:b]
+        )
+
+    samples = np.array(samples)
+
+    eye_heights.append(
+        np.max(samples) -
+        np.min(samples)
+    )
+
+
+# ============================================================
+# 25. PLOT EYE HEIGHT VS SNR
+# ============================================================
+
+plt.figure(figsize=(9,5))
+
+plt.plot(
+    SNR_values,
+    eye_heights,
+    "o-",
+    linewidth=2
+)
+
+plt.grid(True)
+
+plt.xlabel(
+    "SNR (dB)"
+)
+
+plt.ylabel(
+    "Eye Height"
+)
+
+plt.title(
+    "Eye Height vs SNR"
+)
+
+plt.show()
+
+
+# ============================================================
+# 26. BER VS SNR
+# ============================================================
+
+BER_values = []
+
+for snr_db in SNR_values:
+
+    noise_power = (
+        signal_power /
+        10**(snr_db/10)
+    )
+
+    test_noise = (
+        np.sqrt(noise_power)
+        *
+        np.random.randn(len(tx))
+    )
+
+    test_rx = tx + test_noise
+
+    test_mf = np.convolve(
+        test_rx,
+        matched_filter,
+        mode="full"
+    )
+
+    test_aligned = test_mf[
+        total_delay:
+        total_delay + len(upsampled)
+    ]
+
+    test_samples = (
+        test_aligned[::sps]
+    )
+
+    L2 = min(
+        len(test_samples),
+        Nbits
+    )
+
+    test_bits = (
+        test_samples[:L2] > 0
+    ).astype(int)
+
+    ber = np.mean(
+        test_bits != bits[:L2]
+    )
+
+    BER_values.append(
+        ber
+    )
+
+
+# ============================================================
+# 27. THEORETICAL BER CURVE
+# ============================================================
+
+theory_BER = []
+
+for snr_db in SNR_values:
+
+    ebn0 = 10**(
+        snr_db/10
+    )
+
+    ber = (
+        0.5 *
+        np.math.erfc(
+            np.sqrt(ebn0)
+        )
+    )
+
+    theory_BER.append(
+        ber
+    )
+
+
+# ============================================================
+# 28. PLOT BER VS SNR
+# ============================================================
+
+plt.figure(figsize=(9,6))
+
+plt.semilogy(
+    SNR_values,
+    BER_values,
+    "o-",
+    linewidth=2,
+    label="Simulation"
+)
+
+plt.semilogy(
+    SNR_values,
+    theory_BER,
+    "--",
+    linewidth=2,
+    label="Theoretical BPSK"
+)
+
+plt.grid(True)
+
+plt.xlabel(
+    "SNR / Eb/N0 (dB)"
+)
+
+plt.ylabel(
+    "BER"
+)
+
+plt.title(
+    "BER vs SNR"
+)
+
+plt.legend()
+
+plt.show()
+
+
+# ============================================================
+# 29. SAMPLING TIMING OFFSET
+# ============================================================
+
+offsets = np.arange(
+    -0.5,
+    0.501,
+    0.05
+)
+
+BER_offset = []
+
+for offset in offsets:
+
+    offset_samples = int(
+        round(offset*sps)
+    )
+
+    sample_start = offset_samples
+
+    if sample_start < 0:
+        BER_offset.append(np.nan)
+        continue
+
+    if sample_start >= len(rx_aligned):
+        BER_offset.append(np.nan)
+        continue
+
+    samples = rx_aligned[
+        sample_start::sps
+    ]
+
+    L3 = min(
+        len(samples),
+        Nbits
+    )
+
+    test_bits = (
+        samples[:L3] > 0
+    ).astype(int)
+
+    ber = np.mean(
+        test_bits != bits[:L3]
+    )
+
+    BER_offset.append(
+        ber
+    )
+
+
+# ============================================================
+# 30. BER VS TIMING OFFSET
+# ============================================================
+
+plt.figure(figsize=(9,6))
+
+plt.plot(
+    offsets,
+    BER_offset,
+    "o-",
+    linewidth=2
+)
+
+plt.axvline(
+    0,
+    linestyle="--",
+    linewidth=2,
+    label="Nominal sampling point"
+)
+
+plt.grid(True)
+
+plt.xlabel(
+    "Sampling Offset / Symbol Period"
+)
+
+plt.ylabel(
+    "BER"
+)
+
+plt.title(
+    "BER vs Sampling Timing Offset"
+)
+
+plt.legend()
+
+plt.show()
+
+
+# ============================================================
+# 31. ROLL-OFF FACTOR STUDY
+# ============================================================
+
+alpha_values = [
+    0.1,
+    0.25,
+    0.35,
+    0.5,
+    0.75,
+    1.0
+]
+
+plt.figure(figsize=(10,6))
+
+for a in alpha_values:
+
+    test_rrc = rrc_filter(
+        a,
+        span,
+        sps
+    )
+
+    plt.plot(
+        test_rrc,
+        label=f"α = {a}"
+    )
+
+plt.grid(True)
+
+plt.xlabel(
+    "Sample"
+)
+
+plt.ylabel(
+    "Amplitude"
+)
+
+plt.title(
+    "Effect of RRC Roll-Off Factor"
+)
+
+plt.legend()
+
+plt.show()
+
+
+# ============================================================
+# 32. FILTER SPAN STUDY
+# ============================================================
+
+span_values = [
+    4,
+    6,
+    8,
+    10,
+    12
+]
+
+plt.figure(figsize=(10,6))
+
+for sp in span_values:
+
+    test_rrc = rrc_filter(
+        alpha,
+        sp,
+        sps
+    )
+
+    plt.plot(
+        test_rrc,
+        label=f"Span = {sp}"
+    )
+
+plt.grid(True)
+
+plt.xlabel(
+    "Sample"
+)
+
+plt.ylabel(
+    "Amplitude"
+)
+
+plt.title(
+    "Effect of RRC Filter Span"
+)
+
+plt.legend()
+
+plt.show()
+
+
+# ============================================================
+# 33. MULTIPATH ISI CHANNEL
+# ============================================================
+
+path_delay = 5*sps
+
+path_gain = 0.45
+
+multipath_length = (
+    len(tx) + path_delay
+)
+
+multipath_signal = np.zeros(
+    multipath_length
+)
+
+# Direct path
+multipath_signal[
+    :len(tx)
+] += tx
+
+# Delayed path
+multipath_signal[
+    path_delay:path_delay+len(tx)
+] += path_gain * tx
+
+
+# ============================================================
+# 34. ADD NOISE
+# ============================================================
+
+mp_power = np.mean(
+    multipath_signal**2
+)
+
+mp_noise_power = (
+    mp_power /
+    10**(SNRdB/10)
+)
+
+mp_noise = (
+    np.sqrt(mp_noise_power)
+    *
+    np.random.randn(
+        len(multipath_signal)
+    )
+)
+
+multipath_rx = (
+    multipath_signal +
+    mp_noise
+)
+
+
+# ============================================================
+# 35. MATCHED FILTER AFTER MULTIPATH
+# ============================================================
+
+multipath_mf = np.convolve(
+    multipath_rx,
+    matched_filter,
+    mode="full"
+)
+
+multipath_aligned = (
+    multipath_mf[
+        total_delay:
+    ]
+)
+
+
+# ============================================================
+# 36. MULTIPATH WAVEFORM
+# ============================================================
+
+plt.figure(figsize=(12,5))
+
+plt.plot(
+    multipath_aligned[:1500]
+)
+
+plt.grid(True)
+
+plt.xlabel(
+    "Sample"
+)
+
+plt.ylabel(
+    "Amplitude"
+)
+
+plt.title(
+    "Matched Filter Output with Multipath ISI"
+)
+
+plt.show()
+
+
+# ============================================================
+# 37. MULTIPATH EYE DIAGRAM
+# ============================================================
+
+plot_eye(
+    multipath_aligned,
+    sps
+)
+
+
+# ============================================================
+# 38. FINAL SUMMARY
+# ============================================================
+
+print("\n")
+print("==============================================")
+print("          EXPERIMENT 8 COMPLETE")
+print("==============================================")
+
+print("✓ BPSK generation")
+print("✓ RRC pulse shaping")
+print("✓ AWGN channel")
+print("✓ Matched RRC filtering")
+print("✓ Cascade delay calculation")
+print("✓ Delay compensation")
+print("✓ Symbol detection")
+print("✓ Eye diagram")
+print("✓ Eye height vs SNR")
+print("✓ BER vs SNR")
+print("✓ BER vs timing offset")
+print("✓ Roll-off factor study")
+print("✓ Filter span study")
+print("✓ Multipath ISI")
+print("✓ Multipath eye diagram")
+
+print("\nMeasured BER =", BER)
+
+print("\nTheory:")
+print("Increasing SNR → cleaner eye → lower BER")
+print("Timing offset → smaller eye opening → higher BER")
+print("Multipath → ISI → eye closure")
